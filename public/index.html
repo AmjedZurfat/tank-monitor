@@ -1534,61 +1534,49 @@ const STATIONS = {
 };
 
 // ========================
-// API CONFIG
+// SUPABASE DIRECT CONFIG
 // ========================
-const API_BASE = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3000/api'
-  : '/api';
+const SUPABASE_URL  = 'https://vtcebgedtwwrjvqqqubo.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_HcYjNbNDO6Y1af5aB_hETA_VWkNnC4x';
 
-// In-memory cache
-let DB = {};
-let loadingStates = {};
-
-async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...options
+async function sbFetch(path, method, body, prefer) {
+  const headers = {
+    'apikey': SUPABASE_ANON,
+    'Authorization': 'Bearer ' + SUPABASE_ANON,
+    'Content-Type': 'application/json',
+    'Prefer': prefer || 'return=representation'
+  };
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+    method: method || 'GET',
+    headers,
+    body: body ? JSON.stringify(body) : undefined
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || 'خطأ في الاتصال بالخادم');
-  }
-  return res.json();
+  if (res.status === 204) return [];
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || data.hint || JSON.stringify(data));
+  return data;
 }
 
-// Load all readings from API into local cache
+let DB = {};
+
 async function loadDB() {
-  const result = await apiFetch('/readings');
+  const rows = await sbFetch('readings?select=*&order=reading_date.asc');
   DB = {};
-  result.data.forEach(row => {
+  rows.forEach(row => {
     if (!DB[row.tank_id]) DB[row.tank_id] = [];
-    DB[row.tank_id].push({
-      date: row.reading_date,
-      manual: parseFloat(row.manual_val),
-      elec: parseFloat(row.elec_val)
-    });
-  });
-  Object.keys(DB).forEach(k => {
-    DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
+    DB[row.tank_id].push({ date: row.reading_date, manual: parseFloat(row.manual_val), elec: parseFloat(row.elec_val) });
   });
 }
 
 async function saveReading(tankId, stationKey, dateVal, manualVal, elecVal) {
-  const result = await apiFetch('/readings', {
-    method: 'POST',
-    body: JSON.stringify({
-      tank_id: tankId,
-      station_key: stationKey,
-      reading_date: dateVal,
-      manual_val: manualVal,
-      elec_val: elecVal
-    })
-  });
-  return result;
+  return await sbFetch('readings', 'POST',
+    { tank_id: tankId, station_key: stationKey, reading_date: dateVal, manual_val: manualVal, elec_val: elecVal },
+    'resolution=merge-duplicates,return=representation'
+  );
 }
 
 async function deleteReadingFromDB(tankId, dateVal) {
-  await apiFetch('/delete-reading?tank_id=' + encodeURIComponent(tankId) + '&reading_date=' + encodeURIComponent(dateVal), { method: 'DELETE' });
+  await sbFetch('readings?tank_id=eq.' + tankId + '&reading_date=eq.' + dateVal, 'DELETE', null, 'return=minimal');
 }
 
 function getTankData(tankId) {
@@ -1597,11 +1585,9 @@ function getTankData(tankId) {
 }
 
 function showGlobalLoader(show) {
-  let el = document.getElementById('global-loader');
-  if (!el) return;
-  el.style.display = show ? 'flex' : 'none';
+  const el = document.getElementById('global-loader');
+  if (el) el.style.display = show ? 'flex' : 'none';
 }
-
 // ========================
 // DATE / TIME
 // ========================
