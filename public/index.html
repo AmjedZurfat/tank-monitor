@@ -1537,24 +1537,30 @@ const STATIONS = {
 // SUPABASE DIRECT CONFIG
 // ========================
 const SUPABASE_URL  = 'https://vtcebgedtwwrjvqqqubo.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_HcYjNbNDO6Y1af5aB_hETA_VWkNnC4x';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0Y2ViZ2VkdHd3cmp2cXF1cWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4NTYxMjQsImV4cCI6MjA5MDQzMjEyNH0.IR5UV5ud83uOE-82kStWlj-G1tu6d7l9l4SUDkY0ue4';
 
 async function sbFetch(path, method, body, prefer) {
   const headers = {
     'apikey': SUPABASE_ANON,
     'Authorization': 'Bearer ' + SUPABASE_ANON,
-    'Content-Type': 'application/json',
-    'Prefer': prefer || 'return=representation'
+    'Content-Type': 'application/json'
   };
+  if (prefer) headers['Prefer'] = prefer;
+
   const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
     method: method || 'GET',
     headers,
     body: body ? JSON.stringify(body) : undefined
   });
+
+  // Log full error for debugging
+  if (!res.ok) {
+    const txt = await res.text();
+    console.error('Supabase error:', res.status, txt);
+    throw new Error('Supabase ' + res.status + ': ' + txt);
+  }
   if (res.status === 204) return [];
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || data.hint || JSON.stringify(data));
-  return data;
+  return res.json();
 }
 
 let DB = {};
