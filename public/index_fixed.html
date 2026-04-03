@@ -1558,28 +1558,19 @@ async function apiFetch(path, options = {}) {
 
 // Load all readings from API into local cache
 async function loadDB() {
-  try {
-    showGlobalLoader(true);
-    const result = await apiFetch('/readings');
-    DB = {};
-    result.data.forEach(row => {
-      if (!DB[row.tank_id]) DB[row.tank_id] = [];
-      DB[row.tank_id].push({
-        date: row.reading_date,
-        manual: parseFloat(row.manual_val),
-        elec: parseFloat(row.elec_val)
-      });
+  const result = await apiFetch('/readings');
+  DB = {};
+  result.data.forEach(row => {
+    if (!DB[row.tank_id]) DB[row.tank_id] = [];
+    DB[row.tank_id].push({
+      date: row.reading_date,
+      manual: parseFloat(row.manual_val),
+      elec: parseFloat(row.elec_val)
     });
-    // Sort each tank by date
-    Object.keys(DB).forEach(k => {
-      DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
-    });
-  } catch(e) {
-    console.error('loadDB error:', e);
-    showToast('⚠️ تعذّر الاتصال بالخادم — التحقق من الاتصال', true);
-  } finally {
-    showGlobalLoader(false);
-  }
+  });
+  Object.keys(DB).forEach(k => {
+    DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
+  });
 }
 
 async function saveReading(tankId, stationKey, dateVal, manualVal, elecVal) {
@@ -1597,7 +1588,7 @@ async function saveReading(tankId, stationKey, dateVal, manualVal, elecVal) {
 }
 
 async function deleteReadingFromDB(tankId, dateVal) {
-  await apiFetch('/readings/' + tankId + '/' + dateVal, { method: 'DELETE' });
+  await apiFetch('/delete-reading?tank_id=' + encodeURIComponent(tankId) + '&reading_date=' + encodeURIComponent(dateVal), { method: 'DELETE' });
 }
 
 function getTankData(tankId) {
@@ -1754,7 +1745,7 @@ function renderStation(stationKey) {
             <span class="unit-label">سم / وحدة</span>
           </div>
         </div>
-        <button class="add-btn" onclick="addReading('${tank.id}', '${stationKey}')">
+        <button class="add-btn" id="addbtn_${tank.id}" onclick="addReading('${tank.id}', '${stationKey}')">
           ➕ إضافة القراءة
         </button>
 
@@ -1815,7 +1806,8 @@ async function addReading(tankId, stationKey) {
   }
 
   // Disable button during save
-  const btn = document.querySelector('[onclick="addReading('' + tankId + '', '' + stationKey + '')"]');
+  const btnId = 'addbtn_' + tankId;
+  const btn = document.getElementById(btnId);
   if (btn) { btn.disabled = true; btn.textContent = '⏳ جاري الحفظ...'; }
 
   try {
@@ -2401,12 +2393,39 @@ function closeMobileMenu() {
 // ========================
 // INIT
 // ========================
-// Async init — load from API then render
+// Async init — render immediately, then load data from API
+renderStation('iwaa');
+renderStation('kilani');
+renderStation('jabha');
+
+// Load data from API in background and refresh UI
 (async () => {
-  await loadDB();
-  renderStation('iwaa');
-  renderStation('kilani');
-  renderStation('jabha');
+  try {
+    showGlobalLoader(true);
+    const result = await apiFetch('/readings');
+    DB = {};
+    result.data.forEach(row => {
+      if (!DB[row.tank_id]) DB[row.tank_id] = [];
+      DB[row.tank_id].push({
+        date: row.reading_date,
+        manual: parseFloat(row.manual_val),
+        elec: parseFloat(row.elec_val)
+      });
+    });
+    Object.keys(DB).forEach(k => {
+      DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
+    });
+    // Refresh all stations with loaded data
+    renderStation('iwaa');
+    renderStation('kilani');
+    renderStation('jabha');
+    showToast('✅ تم تحميل البيانات');
+  } catch(e) {
+    console.error('init error:', e);
+    showToast('⚠️ لا يوجد اتصال بالخادم — التطبيق يعمل محلياً', true);
+  } finally {
+    showGlobalLoader(false);
+  }
 })();
 </script>
 </body>
