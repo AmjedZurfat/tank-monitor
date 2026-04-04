@@ -1543,24 +1543,31 @@ async function sbFetch(path, method, body, prefer) {
   const headers = {
     'apikey': SUPABASE_ANON,
     'Authorization': 'Bearer ' + SUPABASE_ANON,
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
   };
   if (prefer) headers['Prefer'] = prefer;
 
-  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, {
+  const options = {
     method: method || 'GET',
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
+    headers: headers,
+    mode: 'cors',
+    credentials: 'omit'
+  };
+  if (body) options.body = JSON.stringify(body);
 
-  // Log full error for debugging
+  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, options);
+
+  if (res.status === 204 || res.status === 200 && method === 'DELETE') return [];
+  const txt = await res.text();
   if (!res.ok) {
-    const txt = await res.text();
     console.error('Supabase error:', res.status, txt);
-    throw new Error('Supabase ' + res.status + ': ' + txt);
+    let msg = txt;
+    try { msg = JSON.parse(txt).message || JSON.parse(txt).hint || txt; } catch(e) {}
+    throw new Error(msg);
   }
-  if (res.status === 204) return [];
-  return res.json();
+  if (!txt) return [];
+  return JSON.parse(txt);
 }
 
 let DB = {};
@@ -1613,11 +1620,9 @@ async function checkConnection() {
   const text  = document.getElementById('conn-text');
   if (!badge) return;
   try {
-    const r = await fetch(API_BASE + '/health', { signal: AbortSignal.timeout(4000) });
-    if (r.ok) {
-      badge.className = 'conn-badge online';
-      text.textContent = 'متصل';
-    } else { throw new Error(); }
+    await sbFetch('readings?select=id&limit=1');
+    badge.className = 'conn-badge online';
+    text.textContent = 'متصل';
   } catch {
     badge.className = 'conn-badge offline';
     text.textContent = 'غير متصل';
@@ -2385,36 +2390,22 @@ function closeMobileMenu() {
 // ========================
 // INIT
 // ========================
-// Async init — render immediately, then load data from API
+// تهيئة التطبيق — عرض الواجهة فوراً ثم تحميل البيانات من Supabase
 renderStation('iwaa');
 renderStation('kilani');
 renderStation('jabha');
 
-// Load data from API in background and refresh UI
 (async () => {
   try {
     showGlobalLoader(true);
-    const result = await apiFetch('/readings');
-    DB = {};
-    result.data.forEach(row => {
-      if (!DB[row.tank_id]) DB[row.tank_id] = [];
-      DB[row.tank_id].push({
-        date: row.reading_date,
-        manual: parseFloat(row.manual_val),
-        elec: parseFloat(row.elec_val)
-      });
-    });
-    Object.keys(DB).forEach(k => {
-      DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
-    });
-    // Refresh all stations with loaded data
+    await loadDB();
     renderStation('iwaa');
     renderStation('kilani');
     renderStation('jabha');
     showToast('✅ تم تحميل البيانات');
   } catch(e) {
     console.error('init error:', e);
-    showToast('⚠️ لا يوجد اتصال بالخادم — التطبيق يعمل محلياً', true);
+    showToast('⚠️ تعذّر الاتصال بـ Supabase: ' + e.message, true);
   } finally {
     showGlobalLoader(false);
   }
