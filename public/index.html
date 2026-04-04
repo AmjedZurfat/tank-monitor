@@ -1534,62 +1534,53 @@ const STATIONS = {
 };
 
 // ========================
-// SUPABASE DIRECT CONFIG
+// API CONFIG — الخادم على Vercel
 // ========================
-const SUPABASE_URL  = 'https://vtcebgedtwwrjvqqqubo.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ0Y2ViZ2VkdHd3cmp2cXF1cWJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4NTYxMjQsImV4cCI6MjA5MDQzMjEyNH0.IR5UV5ud83uOE-82kStWlj-G1tu6d7l9l4SUDkY0ue4';
+const API_BASE = '/api';
 
-async function sbFetch(path, method, body, prefer) {
-  const headers = {
-    'apikey': SUPABASE_ANON,
-    'Authorization': 'Bearer ' + SUPABASE_ANON,
-    'Content-Type': 'application/json',
-    'Accept': 'application/json'
-  };
-  if (prefer) headers['Prefer'] = prefer;
-
-  const options = {
-    method: method || 'GET',
-    headers: headers,
-    mode: 'cors',
-    credentials: 'omit'
-  };
-  if (body) options.body = JSON.stringify(body);
-
-  const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, options);
-
-  if (res.status === 204 || res.status === 200 && method === 'DELETE') return [];
-  const txt = await res.text();
-  if (!res.ok) {
-    console.error('Supabase error:', res.status, txt);
-    let msg = txt;
-    try { msg = JSON.parse(txt).message || JSON.parse(txt).hint || txt; } catch(e) {}
-    throw new Error(msg);
-  }
-  if (!txt) return [];
-  return JSON.parse(txt);
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
 }
 
 let DB = {};
 
 async function loadDB() {
-  const rows = await sbFetch('readings?select=*&order=reading_date.asc');
+  const result = await apiFetch('/readings');
   DB = {};
-  rows.forEach(row => {
+  result.data.forEach(row => {
     if (!DB[row.tank_id]) DB[row.tank_id] = [];
-    DB[row.tank_id].push({ date: row.reading_date, manual: parseFloat(row.manual_val), elec: parseFloat(row.elec_val) });
+    DB[row.tank_id].push({
+      date: row.reading_date,
+      manual: parseFloat(row.manual_val),
+      elec: parseFloat(row.elec_val)
+    });
+  });
+  Object.keys(DB).forEach(k => {
+    DB[k].sort((a, b) => new Date(a.date) - new Date(b.date));
   });
 }
 
 async function saveReading(tankId, stationKey, dateVal, manualVal, elecVal) {
-  return await sbFetch('readings', 'POST',
-    { tank_id: tankId, station_key: stationKey, reading_date: dateVal, manual_val: manualVal, elec_val: elecVal },
-    'resolution=merge-duplicates,return=representation'
-  );
+  return await apiFetch('/readings', {
+    method: 'POST',
+    body: JSON.stringify({
+      tank_id: tankId,
+      station_key: stationKey,
+      reading_date: dateVal,
+      manual_val: manualVal,
+      elec_val: elecVal
+    })
+  });
 }
 
 async function deleteReadingFromDB(tankId, dateVal) {
-  await sbFetch('readings?tank_id=eq.' + tankId + '&reading_date=eq.' + dateVal, 'DELETE', null, 'return=minimal');
+  await apiFetch('/readings/' + tankId + '/' + dateVal, { method: 'DELETE' });
 }
 
 function getTankData(tankId) {
@@ -1600,8 +1591,7 @@ function getTankData(tankId) {
 function showGlobalLoader(show) {
   const el = document.getElementById('global-loader');
   if (el) el.style.display = show ? 'flex' : 'none';
-}
-// ========================
+}// ========================
 // DATE / TIME
 // ========================
 function updateClock() {
@@ -1620,9 +1610,11 @@ async function checkConnection() {
   const text  = document.getElementById('conn-text');
   if (!badge) return;
   try {
-    await sbFetch('readings?select=id&limit=1');
-    badge.className = 'conn-badge online';
-    text.textContent = 'متصل';
+    const r = await fetch('/api/health', { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      badge.className = 'conn-badge online';
+      text.textContent = 'متصل';
+    } else { throw new Error(); }
   } catch {
     badge.className = 'conn-badge offline';
     text.textContent = 'غير متصل';
